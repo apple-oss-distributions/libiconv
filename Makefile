@@ -10,6 +10,23 @@ Configure	      = $(SRCROOT)/configure-no-trace $(Sources)/configure
 Extra_Configure_Flags = --disable-static --enable-extra-encodings
 GnuAfterInstall       = strip install-plist
 
+NativeArch		= $(shell arch)
+NativeCompile		= $(filter $(NativeArch),$(RC_ARCHS))
+ifeq "$(MAKECMDGOALS)" "install"
+ifeq "$(NativeCompile)" ""
+# if we aren't building the native architecture, set up configure to
+# cross-compile, so it doesn't try to run the executable it builds
+CONFIGGUESS		:= $(SRCROOT)/$(Project)/build-aux/config.guess
+HostName		:= $(shell $(CONFIGGUESS))
+TargetName		:= $(shell echo $(HostName) | sed 's/^[^-]*-/cross-/')
+Extra_Configure_Flags	+= --host $(HostName) --target $(TargetName)
+endif
+ifneq "$(SDKROOT)" ""
+Extra_CC_Flags		+= -isysroot "$(SDKROOT)"
+Extra_LD_Flags		+= -Wl,-syslibroot,"$(SDKROOT)"
+endif
+endif
+
 # It's a GNU Source project
 include $(MAKEFILEPATH)/CoreOS/ReleaseControl/GNUSource.make
 
