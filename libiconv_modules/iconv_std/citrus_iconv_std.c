@@ -590,6 +590,33 @@ _citrus_iconv_std_iconv_convert(struct _citrus_iconv * __restrict cv,
 		ret = cstombx(&sc->sc_dst_encoding,
 		    *out, *outbytes, csid, idx, &szrout,
 		    cv->cv_shared->ci_hooks);
+#ifdef __APPLE__
+		/*
+		 * If we got an EILSEQ, replace that one character with the
+		 * invalid byte.
+		 */
+		if (ret == EILSEQ && is->is_use_invalid) {
+
+			/*
+			 * szrout should be -1 here, so we'll just use this to
+			 * set it and avoid the need for post-call arithmetic.
+			 */
+			szrout = 0;
+			ret = wctombx(&sc->sc_dst_encoding, *out, *outbytes,
+			    is->is_invalid, &szrout, cv->cv_shared->ci_hooks);
+
+			if (ret != 0) {
+				/*
+				 * We shouldn't be able to get EILSEQ here
+				 * because the invalid character is a property
+				 * of the destination encoding.  If we did get
+				 * it, then the esdb definition is inherently
+				 * broken and we need to fix that.
+				 */
+				assert(ret == E2BIG);
+			}
+		}
+#endif
 		if (ret)
 			goto err;
 next:

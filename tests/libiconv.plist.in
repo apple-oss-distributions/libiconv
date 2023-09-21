@@ -301,6 +301,30 @@
 			<key>Timeout</key>
 			<integer>300</integer>
 		</dict>
+		<dict>
+			<key>TestName</key>
+			<string>libiconv.libiconv_test.test_eilseq_out</string>
+			<key>ShellEnv</key>
+			<dict>
+				<key>ATF_SH</key>
+				<string>/usr/local/bin/atf-sh</string>
+				<key>__RUNNING_INSIDE_ATF_RUN</key>
+				<string>internal-yes-value</string>
+			</dict>
+			<key>Command</key>
+			<array>
+				<string>/AppleInternal/Tests/libiconv/libiconv/libiconv_test</string>
+				<string>-s</string>
+				<string>/AppleInternal/Tests/libiconv/libiconv</string>
+				<string>-r</string>
+				<string>libiconv_test.test_eilseq_out.results.txt</string>
+				<string>test_eilseq_out</string>
+			</array>
+			<key>MayRunConcurrently</key>
+			<true/>
+			<key>Timeout</key>
+			<integer>300</integer>
+		</dict>
 #endif
 	</array>
 </dict>

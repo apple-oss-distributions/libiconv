@@ -456,6 +456,67 @@ ATF_TC_BODY(test_open_all, tc)
 	}
 }
 
+/*
+ * rdar://problem/113828035 - We may encounter a sequence that's valid in the
+ * src encoding, but not in the dst encoding.  GNU libiconv seems to replace
+ * these with the "invalid" character regardless of //IGNORE, so make sure we do
+ * the same.
+ */
+ATF_TC_WITHOUT_HEAD(test_eilseq_out);
+ATF_TC_BODY(test_eilseq_out, tc)
+{
+	iconv_t cd;
+	char first_str[] = "\xc2\xff\xff\xff";
+	char second_str[] = "X\x00\x00\x00\xc2\xff\xff\xffY\x00\x00\x00";
+	char *inbuf, *outbuf, *outptr;
+	size_t insz, outbufsz, outsz, res;
+
+	outbufsz = 7;	/* Largest possible UTF-8 sequence + 1 ("X") */
+	outptr = outbuf = malloc(outbufsz + 1);
+	ATF_REQUIRE(outbuf != NULL);
+
+	cd = iconv_open("UTF-8", "UCS-4LE");
+	ATF_REQUIRE(cd != (iconv_t)-1);
+
+	/*
+	 * First try it with the invalid sequence being at the beginning of our
+	 * conversion.
+	 */
+	inbuf = first_str;
+	insz = sizeof(first_str) - 1;
+	outptr = outbuf;
+	outsz = outbufsz;
+	memset(outptr, '\0', outsz);
+
+	res = iconv(cd, &inbuf, &insz, &outptr, &outsz);
+	ATF_REQUIRE(res == 0);
+	/* Should have consumed the entire input buffer. */
+	ATF_REQUIRE_INTEQ(0, insz);
+
+	/*
+	 * At the moment, our invalid sequence character for UTF-8 is a simple
+	 * "?", so we should have just used up one character.
+	 */
+	ATF_REQUIRE_INTEQ(outbufsz - 1, outsz);
+	ATF_REQUIRE_STREQ("?", outbuf);
+
+	/* Now we try it with valid characters around it. */
+	inbuf = second_str;
+	insz = sizeof(second_str) - 1;
+	outptr = outbuf;
+	outsz = outbufsz;
+	memset(outptr, '\0', outsz);
+
+	res = iconv(cd, &inbuf, &insz, &outptr, &outsz);
+	ATF_REQUIRE(res == 0);
+	ATF_REQUIRE_INTEQ(0, insz);
+
+	ATF_REQUIRE_INTEQ(outbufsz - 3, outsz);
+	ATF_REQUIRE_STREQ("X?Y", outbuf);
+
+	iconv_close(cd);
+}
+
 ATF_TP_ADD_TCS(tp)
 {
 
@@ -471,6 +532,7 @@ ATF_TP_ADD_TCS(tp)
 	ATF_TP_ADD_TC(tp, test_utf8mac_short);
 	ATF_TP_ADD_TC(tp, test_utf8mac_midshort);
 	ATF_TP_ADD_TC(tp, test_open_all);
+	ATF_TP_ADD_TC(tp, test_eilseq_out);
 	return (atf_no_error());
 }
 

@@ -28,6 +28,7 @@
 			<string>bsd_iconv.c: don't clobber errno on successful iconv_open (105248919)</string>
 			<string>citrus_esdb.c: exclude @ filenames from listing (105868289)</string>
 			<string>citrus_mmap.c, citrus_module.c: prefix the simulator root as needed (111163759)</string>
+			<string>citrus_iconv_std.c: handle EILSEQ on output (113828035)</string>
 		</array>
 		<key>OpenSourceLicense</key>
 		<string>BSD</string>
