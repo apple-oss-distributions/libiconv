@@ -1,11 +1,7 @@
-/* $FreeBSD$ */
-/*	$NetBSD: citrus_csmapper.h,v 1.3 2013/06/24 17:28:35 joerg Exp $	*/
-
 /*-
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * Copyright (c)2003 Citrus Project,
- * All rights reserved.
+ * Copyright (c) 2022 Apple Computer, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,33 +25,48 @@
  * SUCH DAMAGE.
  */
 
-#ifndef _CITRUS_CSMAPPER_H_
-#define _CITRUS_CSMAPPER_H_
+#include <assert.h>
+#include <iconv.h>
 
-#ifdef __APPLE__
-#include <stdbool.h>
+int
+LLVMFuzzerTestOneInput(const uint8_t *data, size_t sz)
+{
+	size_t bufsz = sz * 6;
+	char outbuf[bufsz + 1];
+	char *inptr, *outptr;
+	size_t insz, outsz;
+	iconv_t cd;
+	size_t ret;
+
+	if (sz == 0)
+		return (-1);
+
+#if 0
+	for (size_t i = 0; i < sz; i++) {
+		fprintf(stderr, "\\x%.02x", data[i]);
+	}
+	fprintf(stderr, "\n");
 #endif
+	cd = iconv_open("CTEXT", "UTF-8");
+	assert(cd != (iconv_t)-1);
 
-#define _citrus_csmapper		_citrus_mapper
-#define _citrus_csmapper_close		_citrus_mapper_close
-#define _citrus_csmapper_convert	_citrus_mapper_convert
-#define _citrus_csmapper_init_state	_citrus_mapper_init_state
-#define _citrus_csmapper_get_state_size	_citrus_mapper_get_state_size
-#define _citrus_csmapper_get_src_max	_citrus_mapper_get_src_max
-#define _citrus_csmapper_get_dst_max	_citrus_mapper_get_dst_max
+	inptr = (char *)data;
+	insz = sz;
+	outptr = &outbuf[0];
+	outsz = bufsz;
+	ret = iconv(cd, &inptr, &insz, &outptr, &outsz);
+	iconv_close(cd);
 
-#define _CITRUS_CSMAPPER_F_PREVENT_PIVOT	0x00000001
-__BEGIN_DECLS
-#ifdef __APPLE__
-struct _citrus_csmapper;
-int	 _citrus_csmapper_open(struct _citrus_csmapper *__restrict *__restrict,
-	    const char *__restrict, const char *__restrict, uint32_t,
-	    unsigned long *, bool *);
-#else
-int	 _citrus_csmapper_open(struct _citrus_csmapper *__restrict *__restrict,
-	    const char *__restrict, const char *__restrict, uint32_t,
-	    unsigned long *);
-#endif
-__END_DECLS
+	cd = iconv_open("UTF-8", "CTEXT");
+	assert(cd != (iconv_t)-1);
 
-#endif
+	inptr = (char *)data;
+	insz = sz;
+	outptr = &outbuf[0];
+	outsz = bufsz;
+	ret = iconv(cd, &inptr, &insz, &outptr, &outsz);
+	iconv_close(cd);
+
+	return (0);
+}
+
