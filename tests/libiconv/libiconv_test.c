@@ -1098,6 +1098,197 @@ ATF_TC_BODY(test_short_error_combo_wchar, tc)
 	iconv_close(cd);
 }
 
+/*
+ * rdar://problem/143833978 - this demonstrates a null pointer dereference in
+ * the HZ encoder.  While we're here, we're confirming that:
+ *   1.) ~~ in the middle of the string is compacted to ~
+ *   2.) ~~ following a GB2312 sequence is still compacted properly
+ *   3.) ~~ in the middle of a GB2312 sequence is an error
+ */
+ATF_TC_WITHOUT_HEAD(test_hz_escaping);
+ATF_TC_BODY(test_hz_escaping, tc)
+{
+	char in[] = "~~~{~}~~~{~~";
+	char out[8];
+	iconv_t cd;
+	size_t inval, inleft, outleft;
+	char *inbuf, *outbuf;
+
+	inbuf = &in[0];
+	inleft = sizeof(in) - 1;
+	outbuf = (char *)&out[0];
+	outleft = sizeof(out);
+	cd = iconv_open("UTF-8", "HZ8");
+	ATF_REQUIRE(cd != (iconv_t)-1);
+
+	inval = iconv(cd, &inbuf, &inleft, &outbuf, &outleft);
+
+	ATF_REQUIRE(inval == (size_t)-1);
+	ATF_REQUIRE(errno == EILSEQ);
+
+	/* We should have made it two ~ in. */
+	ATF_REQUIRE(outleft == sizeof(out) - 2);
+
+	iconv_close(cd);
+}
+
+/*
+ * rdar://problem/143833978 - this demonstrates an OOB write in the UTF7
+ * encoder.  There's no room in the buffer, so this should trivially kick back
+ * an E2BIG without writing at all into the buffer.
+ */
+ATF_TC_WITHOUT_HEAD(test_utf7_oob);
+ATF_TC_BODY(test_utf7_oob, tc)
+{
+	char in[] = "{";
+	char out[8] = { 0x00 };
+	iconv_t cd;
+	size_t inval, inleft, outleft;
+	char *inbuf, *outbuf;
+
+	inbuf = &in[0];
+	inleft = sizeof(in) - 1;
+	outbuf = (char *)&out[0];
+	outleft = 0;
+
+	cd = iconv_open("UTF-7", "UTF-8");
+	ATF_REQUIRE(cd != (iconv_t)-1);
+
+	inval = iconv(cd, &inbuf, &inleft, &outbuf, &outleft);
+
+	ATF_REQUIRE(inval == (size_t)-1);
+	ATF_REQUIRE(errno == E2BIG);
+
+	for (size_t i = 0; i < sizeof(out); i++)
+		ATF_REQUIRE(out[i] == 0);
+
+	iconv_close(cd);
+}
+
+/*
+ * rdar://problem/143833978 - this demonstrates an OOB write in the ZW
+ * encoder.  There's no room in the buffer, so this should trivially kick back
+ * an E2BIG without writing at all into the buffer.
+ */
+ATF_TC_WITHOUT_HEAD(test_zw_oob);
+ATF_TC_BODY(test_zw_oob, tc)
+{
+	char in[] = "\x00\x7b";
+	char out[16] = { 0x00 };
+	iconv_t cd;
+	size_t inval, inleft, outleft;
+	char *inbuf, *outbuf;
+
+	inbuf = &in[0];
+	inleft = sizeof(in) - 1;
+	outbuf = (char *)&out[0];
+	outleft = 0;
+
+	cd = iconv_open("ZW", "UTF-8");
+	ATF_REQUIRE(cd != (iconv_t)-1);
+
+	inval = iconv(cd, &inbuf, &inleft, &outbuf, &outleft);
+
+	ATF_REQUIRE(inval == (size_t)-1);
+	ATF_REQUIRE(errno == E2BIG);
+
+	for (size_t i = 0; i < sizeof(out); i++)
+		ATF_REQUIRE(out[i] == 0);
+
+	iconv_close(cd);
+}
+
+/*
+ * rdar://problem/143833978 - this demonstrates an OOB write in the VIQR
+ * encoder.  There's less room than necessary in the buffer, so this should kick
+ * back an E2BIG without writing past the described length of the buffer.
+ */
+ATF_TC_WITHOUT_HEAD(test_viqr_oob);
+ATF_TC_BODY(test_viqr_oob, tc)
+{
+	char in[] = "\x4f\x7e";
+	char out[16] = { 0x00 };
+	iconv_t cd;
+	size_t inval, inleft, outleft;
+	char *inbuf, *outbuf;
+
+	inbuf = &in[0];
+	inleft = sizeof(in) - 1;
+	outbuf = (char *)&out[0];
+	outleft = 2;
+
+	cd = iconv_open("VIQR", "UTF-8");
+	ATF_REQUIRE(cd != (iconv_t)-1);
+
+	inval = iconv(cd, &inbuf, &inleft, &outbuf, &outleft);
+
+	ATF_REQUIRE(inval == (size_t)-1);
+	ATF_REQUIRE(errno == E2BIG);
+
+	/*
+	 * libiconv isn't required to move outleft if it didn't complete a
+	 * character, so we start at out[2] -- out[0] and out[1] likely did get
+	 * clobbered.
+	 */
+	for (size_t i = 2; i < sizeof(out); i++)
+		ATF_REQUIRE(out[i] == 0);
+
+	iconv_close(cd);
+}
+
+/*
+ * rdar://problem/146526269 - this demonstrates a failure in iconv_std to return
+ * valid characters already converted when we hit an error in trying to do some
+ * batch processing.  We force an E2BIG to start with and it should essentially
+ * drop everything that was processed in the first batch, then we finish the
+ * conversion and ensure that we didn't lose data.
+ */
+ATF_TC_WITHOUT_HEAD(test_shiftjis_trunc);
+ATF_TC_BODY(test_shiftjis_trunc, tc)
+{
+	iconv_t cd;
+	int32_t in[12] = { 0x3053, 0x3093, 0x306b, 0x3061, 0x306f, 0x41,
+		0x42, 0x43, 0x4e16, 0x754c, 0x58, 0x59 };
+	char expected[] = "\x82\xb1\x82\xf1\x82\xc9\x82\xbf\x82\xcd" "ABC" "\x90\xa2\x8a\x45" "XY";
+	char out[64] = { 0 };
+	char *inbuf, *outbuf;
+	size_t inleft, outleft;
+	size_t ret;
+
+	inbuf = (void *)&in[0];
+	outbuf = &out[0];
+	inleft = sizeof(in);
+	/* Too short of buffer to trigger E2BIG failure prematurely. */
+	outleft = 14;
+
+	cd = iconv_open("SHIFT_JIS", "UTF-32LE");
+	ATF_REQUIRE(cd != (iconv_t)-1);
+
+	ret = iconv(cd, &inbuf, &inleft, &outbuf, &outleft);
+	ATF_REQUIRE(ret == (size_t)-1);
+	ATF_REQUIRE(errno == E2BIG);
+
+	/*
+	 * Enlarge the output buffer so we can finish the conversion.  If we
+	 * triggered the bug, then we've already lost a good chunk of our
+	 * input.
+	 */
+	outleft = sizeof(out) - (outbuf - out);
+
+	ret = iconv(cd, &inbuf, &inleft, &outbuf, &outleft);
+	ATF_REQUIRE(ret == 0);
+
+	// Flush internal state
+	ret = iconv(cd, (char**)NULL, (size_t*)NULL, &outbuf, &outleft);
+	ATF_REQUIRE(ret == 0);
+
+	iconv_close(cd);
+
+	ATF_REQUIRE_INTEQ(inleft, 0);
+	ATF_REQUIRE_INTEQ(outbuf - out, sizeof(expected) - 1);
+	ATF_REQUIRE(strcmp(out, expected) == 0);
+}
+
 ATF_TP_ADD_TCS(tp)
 {
 
@@ -1126,6 +1317,11 @@ ATF_TP_ADD_TCS(tp)
 	ATF_TP_ADD_TC(tp, test_utf7_ascii);
 	ATF_TP_ADD_TC(tp, test_short_error_combo);
 	ATF_TP_ADD_TC(tp, test_short_error_combo_wchar);
+	ATF_TP_ADD_TC(tp, test_hz_escaping);
+	ATF_TP_ADD_TC(tp, test_utf7_oob);
+	ATF_TP_ADD_TC(tp, test_zw_oob);
+	ATF_TP_ADD_TC(tp, test_viqr_oob);
+	ATF_TP_ADD_TC(tp, test_shiftjis_trunc);
 	return (atf_no_error());
 }
 
